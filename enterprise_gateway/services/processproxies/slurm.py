@@ -298,7 +298,7 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
     def kill(self) -> bool|None:
         """Kill the proxy."""
         try:
-            self.rsh(self.ip, f"srun --nodelist=$(squeue -h -j {self.job_id} -o \"%N\") scancel {self.job_id};enroot remove --force {self.enroot_container_name}")
+            self.rsh(self.ip, f"srun --nodelist=$(squeue -h -j {self.job_id} -o \"%N\") scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
         except Exception as e:
             self.log.warning(f"Error cancelling slurm job {self.job_id} and removing enroot image for user {self.slurm_kernel_username}. Error: {str(e)}")
             return False

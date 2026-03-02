@@ -367,7 +367,6 @@ class RemoteMappingKernelManager(AsyncMappingKernelManager):
         """
         # Create a KernelManger instance and load connection and process info, then confirm the kernel is still
         # alive.
-        print("\n\n\n LETS GOOOOOOOOOOOOOOOOO\n\n\n")
         constructor_kwargs = {}
         if self.kernel_spec_manager:
             constructor_kwargs["kernel_spec_manager"] = self.kernel_spec_manager
@@ -624,7 +623,6 @@ class RemoteKernelManager(EnterpriseGatewayConfigMixin, AsyncIOLoopKernelManager
                     "clients connected at this time.".format(kernel_id)
                 )
                 # Use the parent mapping kernel manager so activity monitoring and culling is also shutdown
-                print("\n\n\nEBAAAAAAAAAT\n\n\n")
                 await self.mapping_kernel_manager.shutdown_kernel(kernel_id, now=now)
                 return
 

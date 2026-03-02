@@ -37,6 +37,7 @@ from .services.sessions.kernelsessionmanager import (
     WebhookKernelSessionManager,
 )
 from .services.sessions.sessionmanager import SessionManager
+from .services.processproxies.slurm import SlurmProxyConfig
 
 try:
     from jupyter_server.auth.authorizer import AllowAllAuthorizer
@@ -83,6 +84,7 @@ class EnterpriseGatewayApp(EnterpriseGatewayConfigMixin, JupyterApp):
         FileKernelSessionManager,
         WebhookKernelSessionManager,
         RemoteMappingKernelManager,
+        SlurmProxyConfig,
     ]
 
     # Enable some command line shortcuts

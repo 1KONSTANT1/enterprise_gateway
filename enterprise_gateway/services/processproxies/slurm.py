@@ -9,12 +9,63 @@ from typing import Any
 
 from ..kernels.remotemanager import RemoteKernelManager
 from .processproxy import BaseProcessProxyABC, RemoteProcessProxy
+from traitlets import List, Unicode, Integer, Bool
+from traitlets.config import Configurable
 
 poll_interval = float(os.getenv("EG_POLL_INTERVAL", "0.5"))
 kernel_log_dir = os.getenv(
     "EG_KERNEL_LOG_DIR", "/tmp"  # noqa
 )  # would prefer /var/log, but its only writable by root
 
+
+class SlurmProxyConfig(Configurable):
+    """Configuration for Slurm Process Proxy.
+    
+    This class provides configuration options for launching kernels
+    on Slurm-managed clusters.
+    """
+    
+    
+    master_nodes = List(Unicode(), config=True,
+                       help="""List of master nodes for Slurm.
+These nodes will be used as the primary contact points
+for Slurm job submission.
+                       """)
+    
+    nfs_server = Unicode('0.0.0.0', config=True,
+                             help="""  The IP address or hostname of the NFS server that contains user home directories
+  or shared data volumes.
+  This server will be mounted on Slurm worker nodes to provide access to user files,
+  kernelspecs, and shared data across the cluster. The NFS export should be properly
+  configured to allow access from all worker nodes in the Slurm partition.
+  
+  Example: '192.168.1.100' or 'nfs-server.cluster.local'
+
+                             """)
+    
+    nfs_server_dest = Unicode('/data', config=True,
+                             help="""NFS server user's directory path destination
+The remote path on the NFS server that contains user directories or shared data.
+This path corresponds to the NFS export that will be mounted on worker nodes.
+ 
+This is typically the exported path on the NFS server, such as '/home' or '/exports/users'.
+The kernel processes will access user data through this mount point.
+  
+Example: '/exports/users' or '/shared_data'
+                             """)
+    
+    worker_mount_dir = Unicode('/mnt/users', config=True,
+                             help="""The local mount point on each Slurm worker node where the NFS share will be mounted.
+  
+This directory must exist and be accessible on all worker nodes. The NFS export from
+the server will be mounted here, making user files available to kernel processes.
+Ensure this directory has appropriate permissions for the users running kernels.
+  
+Example: '/mnt/nfs/users' or '/shared'
+                             """)
+    enroot_image_path = Unicode('/mnt', config=True,
+                             help=""" The file system path to Enroot container images stored on the Slurm worker nodes.
+                             """)
 
 class SlurmProcessProxy(RemoteProcessProxy):
     """
@@ -34,10 +85,18 @@ class SlurmProcessProxy(RemoteProcessProxy):
         self.kernel_log = None
         self.local_stdout = None
         
-        if proxy_config.get("remote_hosts"):
-            self.slurm_master_hosts = proxy_config.get("remote_hosts").split(",")
-        else:
-            self.slurm_master_hosts = kernel_manager.remote_hosts  # from command line or env
+        self.slurm_sbatch_flags = proxy_config.get("sbatch_flags")
+
+        #get slurm config from JEG config
+        slurm_config = kernel_manager.config.get('SlurmProxyConfig', {})
+        
+        #get envs from config
+        if slurm_config:
+            self.slurm_master_hosts = slurm_config.get('master_nodes', [])
+            self.nfs_server = slurm_config.get('nfs_server', "0.0.0.0")
+            self.nfs_server_dest = slurm_config.get('nfs_server_dest', "/data")
+            self.worker_mount_dir = slurm_config.get('worker_mount_dir', "/mnt/users")
+            self.enroot_image_path = slurm_config.get('enroot_image_path', "/mnt")
             
 
     async def launch_process(
@@ -46,11 +105,11 @@ class SlurmProcessProxy(RemoteProcessProxy):
         """
         Launches a kernel process on a SLURM cluster.
         """
+        
         env_dict = kwargs.get("env")
 
         self.slurm_kernel_username = env_dict.get("KERNEL_USERNAME")
 
-        self.slurm_sbatch_flags = self.kernel_manager.kernel_spec.metadata['process_proxy']['sbatch_flags']
 
         await super().launch_process(kernel_cmd, **kwargs)
 
@@ -91,7 +150,7 @@ class SlurmProcessProxy(RemoteProcessProxy):
         self.log.debug(f"Invoking cmd: '{inputs}' on host: {self.assigned_host}")
         slurm_job = "bad_job"  # purposely initialize to bad int value
 
-        result = self.rsh(self.ip, f"mkdir /home/michman/nfs_data/{self.slurm_kernel_username} && sudo mount -t nfs 10.100.203.132:/data/{self.slurm_kernel_username} /home/michman/nfs_data/{self.slurm_kernel_username}; enroot create --name kernel_{self.slurm_kernel_username} /home/michman/dockerf/jupyter-kernel.sqsh;sbatch --parsable" , inputs)
+        result = self.rsh(self.ip, f"mkdir {self.worker_mount_dir}/{self.slurm_kernel_username} && sudo mount -t nfs {self.nfs_server}:{self.nfs_server_dest}/{self.slurm_kernel_username} {self.worker_mount_dir}/{self.slurm_kernel_username}; enroot create --name kernel_{self.slurm_kernel_username} {self.enroot_image_path};sbatch --parsable" , inputs)
         for line in result:
             slurm_job = line.strip()
 
@@ -134,11 +193,13 @@ class SlurmProcessProxy(RemoteProcessProxy):
 
             for arg in argv_cmd:
                 cmd += f" {arg}"
-            
-            cmd = f"enroot start --mount ./nfs_data/{self.slurm_kernel_username}:/work kernel_{self.slurm_kernel_username} /bin/bash -c \"" + cmd +"\""
+                
+            #kernel runs in enroot container and is being mounted to nfs
+            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work kernel_{self.slurm_kernel_username} /bin/bash -c \"" + cmd +"\""
 
             cmd += f" >> {self.kernel_log} 2>&1"  # return the process id    echo $!
         
+        #set sbatch flags for script
         slurm_job_flags = ''
         for parameter, value in self.slurm_sbatch_flags.items():
             slurm_job_flags += f'#SBATCH --{parameter}={value}\n'

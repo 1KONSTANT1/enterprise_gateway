@@ -4,13 +4,13 @@ import asyncio
 import json
 import os
 from socket import gethostbyname
-from subprocess import STDOUT
 from typing import Any
 
 from ..kernels.remotemanager import RemoteKernelManager
 from .processproxy import BaseProcessProxyABC, RemoteProcessProxy
-from traitlets import List, Unicode, Integer, Bool
+from traitlets import List, Unicode
 from traitlets.config import Configurable
+import random
 
 poll_interval = float(os.getenv("EG_POLL_INTERVAL", "0.5"))
 kernel_log_dir = os.getenv(
@@ -75,6 +75,11 @@ class SlurmProcessProxy(RemoteProcessProxy):
     default_batch_job = """#!/bin/bash
 {SBATCH_JOB_FLAGS}
 
+mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME} && sudo mount -t nfs {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+echo lets goooooooooooooooo
+enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
+
+echo wtd
 
 {COMMAND}    
 """
@@ -109,6 +114,8 @@ class SlurmProcessProxy(RemoteProcessProxy):
         env_dict = kwargs.get("env")
 
         self.slurm_kernel_username = env_dict.get("KERNEL_USERNAME")
+        
+        self.enroot_container_name = f"kernel_{self.slurm_kernel_username}_{random.randint(1000, 9999)}"
 
 
         await super().launch_process(kernel_cmd, **kwargs)
@@ -150,7 +157,7 @@ class SlurmProcessProxy(RemoteProcessProxy):
         self.log.debug(f"Invoking cmd: '{inputs}' on host: {self.assigned_host}")
         slurm_job = "bad_job"  # purposely initialize to bad int value
 
-        result = self.rsh(self.ip, f"mkdir {self.worker_mount_dir}/{self.slurm_kernel_username} && sudo mount -t nfs {self.nfs_server}:{self.nfs_server_dest}/{self.slurm_kernel_username} {self.worker_mount_dir}/{self.slurm_kernel_username}; enroot create --name kernel_{self.slurm_kernel_username} {self.enroot_image_path};sbatch --parsable" , inputs)
+        result = self.rsh(self.ip, f"sbatch --parsable" , inputs)
         for line in result:
             slurm_job = line.strip()
 
@@ -195,7 +202,7 @@ class SlurmProcessProxy(RemoteProcessProxy):
                 cmd += f" {arg}"
                 
             #kernel runs in enroot container and is being mounted to nfs
-            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work kernel_{self.slurm_kernel_username} /bin/bash -c \"" + cmd +"\""
+            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work {self.enroot_container_name} /bin/bash -c \"" + cmd +"\""
 
             cmd += f" >> {self.kernel_log} 2>&1"  # return the process id    echo $!
         
@@ -207,7 +214,7 @@ class SlurmProcessProxy(RemoteProcessProxy):
         slurm_job_flags += f'#SBATCH --output=jupyter-kernel-%j.log\n'
         slurm_job_flags += f'#SBATCH --error=error-jupyter-kernel-%j.log\n'
         
-        inputs = self.default_batch_job.format(COMMAND = cmd, SBATCH_JOB_FLAGS=slurm_job_flags)
+        inputs = self.default_batch_job.format(COMMAND = cmd, SBATCH_JOB_FLAGS=slurm_job_flags, WORKER_MOUNT_DIR=self.worker_mount_dir, SLURM_KERNEL_USERNAME=self.slurm_kernel_username, NFS_SERVER = self.nfs_server, NFS_SERVER_DEST=self.nfs_server_dest, ENROOT_IMAGE_PATH= self.enroot_image_path, CONTAINER_NAME = self.enroot_container_name)
         
 
         return inputs
@@ -261,7 +268,7 @@ class SlurmProcessProxy(RemoteProcessProxy):
     def kill(self) -> bool|None:
         """Kill the proxy."""
         try:
-            self.rsh(self.ip, f"scancel {self.job_id};enroot remove --force kernel_{self.slurm_kernel_username}")
+            self.rsh(self.ip, f"srun --nodelist=$(squeue -h -j {self.job_id} -o \"%N\") scancel {self.job_id};enroot remove --force {self.enroot_container_name}")
         except Exception as e:
             self.log.warning(f"Error cancelling slurm job {self.job_id} and removing enroot image for user {self.slurm_kernel_username}. Error: {str(e)}")
             return False

@@ -1,17 +1,11 @@
-"""Code used for the generic distribution of kernels across a set of hosts."""
-
-# Copyright (c) Jupyter Development Team.
-# Distributed under the terms of the Modified BSD License.
-
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import signal
 from socket import gethostbyname
 from subprocess import STDOUT
-from typing import Any, ClassVar
+from typing import Any
 
 from ..kernels.remotemanager import RemoteKernelManager
 from .processproxy import BaseProcessProxyABC, RemoteProcessProxy
@@ -22,63 +16,16 @@ kernel_log_dir = os.getenv(
 )  # would prefer /var/log, but its only writable by root
 
 
-class TrackKernelOnHost:
-    """A class for tracking a kernel on a host."""
-
-    _host_kernels: ClassVar = {}
-    _kernel_host_mapping: ClassVar = {}
-
-    def add_kernel_id(self, host: str, kernel_id: str) -> None:
-        """Add a kernel to a host."""
-        self._kernel_host_mapping[kernel_id] = host
-        self.increment(host)
-
-    def delete_kernel_id(self, kernel_id: str) -> None:
-        """Delete a kernel id from tracking."""
-        host = self._kernel_host_mapping.get(kernel_id)
-        if host:
-            self.decrement(host)
-            del self._kernel_host_mapping[kernel_id]
-
-    def min_or_remote_host(self, remote_host: str | None = None) -> str:
-        """Return the remote host if given, or the kernel with the min value."""
-        if remote_host:
-            return remote_host
-        return min(self._host_kernels, key=lambda k: self._host_kernels[k])
-
-    def increment(self, host: str) -> None:
-        """Increment the value for a host."""
-        val = int(self._host_kernels.get(host, 0))
-        self._host_kernels[host] = val + 1
-
-    def decrement(self, host: str) -> None:
-        """Decrement the value for a host."""
-        val = int(self._host_kernels.get(host, 0))
-        self._host_kernels[host] = val - 1
-
-    def init_host_kernels(self, hosts) -> None:
-        """Inititialize the kernels for a set of hosts."""
-        if len(self._host_kernels) == 0:
-            self._host_kernels.update({key: 0 for key in hosts})
-
-
 class SlurmProcessProxy(RemoteProcessProxy):
     """
     Manages the lifecycle of kernels running on slurm cluster.
     """
 
-    host_index = 0
-    kernel_on_host = TrackKernelOnHost()
     default_batch_job = """#!/bin/bash
-#SBATCH --job-name=test_job
-#SBATCH --output=test_%j.log
-#SBATCH --error=error_%j.log
-#SBATCH --time=00:00:30
-#SBATCH --ntasks=1
-#SBATCH --nodelist=michmanc3ab4d15-3d62-4d03-879d-011ddbd7f6f3
+{SBATCH_JOB_FLAGS}
+
 
 {COMMAND}    
-echo HEHEHHEHE
 """
 
     def __init__(self, kernel_manager: RemoteKernelManager, proxy_config: dict):
@@ -87,49 +34,34 @@ echo HEHEHHEHE
         self.kernel_log = None
         self.local_stdout = None
         
-        #self.least_connection = kernel_manager.load_balancing_algorithm == "least-connection"
         if proxy_config.get("remote_hosts"):
-            self.hosts = proxy_config.get("remote_hosts").split(",")
+            self.slurm_master_hosts = proxy_config.get("remote_hosts").split(",")
         else:
-            self.hosts = kernel_manager.remote_hosts  # from command line or env
-
-        #if self.least_connection:
-            #DistributedProcessProxy.kernel_on_host.init_host_kernels(self.hosts)
+            self.slurm_master_hosts = kernel_manager.remote_hosts  # from command line or env
+            
 
     async def launch_process(
         self, kernel_cmd: str, **kwargs: dict[str, Any] | None
     ) -> SlurmProcessProxy:
         """
-        Launches a kernel process on a selected host.
+        Launches a kernel process on a SLURM cluster.
         """
-
-
-
-
-
-        #regex, по которым batchspawner парсит состояния задач
-       # c.SlurmSpawner.state_pending_re = r'^PENDING|^CONFIGURING|^PD'
-       # c.SlurmSpawner.state_running_re = r'^RUNNING|^COMPLETING|^R'
-       # c.SlurmSpawner.state_exechost_re = r'\s+([\w\.-]+)$'
-
-        #SSH - тк JupyterHUB живет не на SLURM-кластере
-        # slurm-cluster - настройка конфига ssh на сервер SLURM-master
-       # c.SlurmSpawner.batch_submit_cmd = 'ssh slurm-cluster sbatch --parsable' #команда на запуск
-       # c.SlurmSpawner.batch_query_cmd = 'ssh slurm-cluster \"squeue -h -j {{job_id}} -o \"%T\";squeue -h -j {{job_id}} -o \"%N\"\"' #команда возвращает состояние задачи и имя узла, где она запускается
-       # c.SlurmSpawner.batch_cancel_cmd = 'ssh slurm-cluster scancel {{job_id}}' #Завершить задачу
-
-
         env_dict = kwargs.get("env")
+
+        self.slurm_kernel_username = env_dict.get("KERNEL_USERNAME")
+
+        self.slurm_sbatch_flags = self.kernel_manager.kernel_spec.metadata['process_proxy']['sbatch_flags']
+
         await super().launch_process(kernel_cmd, **kwargs)
 
-        #self.assigned_host = self._determine_next_host(env_dict)
-        self.assigned_host = "michmanc3ab4d15-3d62-4d03-879d-011ddbd7f6f3.novalocal"
-        self.ip = gethostbyname("michmanc3ab4d15-3d62-4d03-879d-011ddbd7f6f3.novalocal")  # convert to ip if host is provided
+
+        self.assigned_host = self.slurm_master_hosts[0]
+        self.ip = gethostbyname(self.assigned_host)  # convert to ip if host is provided
         self.assigned_ip = self.ip
 
         try:
-            result_pid = self._launch_remote_process(kernel_cmd, **kwargs)
-            self.pid = int(result_pid)
+            slurm_job = self._launch_remote_process(kernel_cmd, **kwargs)
+            self.job_id= int(slurm_job)
         except Exception as e:
             error_message = "Failure occurred starting kernel on '{}'.  Returned result: {}".format(
                 self.ip, e
@@ -137,9 +69,9 @@ echo HEHEHHEHE
             self.log_and_raise(http_status_code=500, reason=error_message)
 
         self.log.info(
-            "Kernel launched on '{}', pid: {}, ID: {}, Log file: {}:{}, Command: '{}'.  ".format(
+            "Kernel launched on '{}', slurm job id: {}, ID: {}, Log file: {}:{}, Command: '{}'.  ".format(
                 self.assigned_host,
-                self.pid,
+                self.job_id,
                 self.kernel_id,
                 self.assigned_host,
                 self.kernel_log,
@@ -157,22 +89,17 @@ echo HEHEHHEHE
 
         inputs = self._build_startup_command(kernel_cmd, **kwargs)
         self.log.debug(f"Invoking cmd: '{inputs}' on host: {self.assigned_host}")
-        result_pid = "bad_pid"  # purposely initialize to bad int value
+        slurm_job = "bad_job"  # purposely initialize to bad int value
 
-        
-        # launch remote command via ssh
-        result = self.rsh("michmanc3ab4d15-3d62-4d03-879d-011ddbd7f6f3.novalocal", "sbatch --parsable" , inputs)
+        result = self.rsh(self.ip, f"mkdir /home/michman/nfs_data/{self.slurm_kernel_username} && sudo mount -t nfs 10.100.203.132:/data/{self.slurm_kernel_username} /home/michman/nfs_data/{self.slurm_kernel_username}; enroot create --name kernel_{self.slurm_kernel_username} /home/michman/dockerf/jupyter-kernel.sqsh;sbatch --parsable" , inputs)
         for line in result:
-            result_pid = line.strip()
+            slurm_job = line.strip()
 
-        return result_pid
+        return slurm_job
     
     def poll(self) -> Any | None:
         """
         Determines if process proxy is still alive.
-
-        If this corresponds to a local (popen) process, poll() is called on the subprocess.
-        Otherwise, the zero signal is used to determine if active.
         """
 
         return self.send_signal(0)
@@ -191,6 +118,7 @@ echo HEHEHHEHE
         # Optimized case needs to also redirect the kernel output, so unconditionally compose kernel_log
         env_dict = kwargs["env"]
         kid = env_dict.get("KERNEL_ID")
+
         self.kernel_log = os.path.join(kernel_log_dir, f"kernel-{kid}.log")
 
         if BaseProcessProxyABC.ip_is_local(self.ip):  # We're local so just use what we're given
@@ -204,37 +132,24 @@ echo HEHEHHEHE
             for key, value in self.kernel_manager.kernel_spec.env.items():
                 cmd += "export {}={};".format(key, json.dumps(value).replace("'", "''"))
 
-            #cmd += "nohup"
             for arg in argv_cmd:
                 cmd += f" {arg}"
+            
+            cmd = f"enroot start --mount ./nfs_data/{self.slurm_kernel_username}:/work kernel_{self.slurm_kernel_username} /bin/bash -c \"" + cmd +"\""
 
             cmd += f" >> {self.kernel_log} 2>&1"  # return the process id    echo $!
         
-        inputs = self.default_batch_job.format(COMMAND = cmd)
+        slurm_job_flags = ''
+        for parameter, value in self.slurm_sbatch_flags.items():
+            slurm_job_flags += f'#SBATCH --{parameter}={value}\n'
+        slurm_job_flags += f'#SBATCH --job-name={self.slurm_kernel_username}-kernel\n'
+        slurm_job_flags += f'#SBATCH --output=jupyter-kernel-%j.log\n'
+        slurm_job_flags += f'#SBATCH --error=error-jupyter-kernel-%j.log\n'
         
-        print(inputs)
+        inputs = self.default_batch_job.format(COMMAND = cmd, SBATCH_JOB_FLAGS=slurm_job_flags)
+        
 
         return inputs
-
-  #  def _determine_next_host(self, env_dict: dict) -> str:
-     #   """Simple round-robin index into list of hosts or use least-connection ."""
-     #   remote_host = env_dict.get("KERNEL_REMOTE_HOST")
-      #  if self.least_connection:
-      #      next_host = DistributedProcessProxy.kernel_on_host.min_or_remote_host(remote_host)
-       #     DistributedProcessProxy.kernel_on_host.add_kernel_id(next_host, self.kernel_id)
-     #   else:
-      #      next_host = (
-       ##         remote_host
-        #        if remote_host
-        #        else self.hosts[DistributedProcessProxy.host_index % self.hosts.__len__()]
-       #     )
-       #     DistributedProcessProxy.host_index += 1
-#
-      #  return next_host
-
-    #def _unregister_assigned_host(self) -> None:
-        #if self.least_connection:
-          #  DistributedProcessProxy.kernel_on_host.delete_kernel_id(self.kernel_id)
 
     async def confirm_remote_startup(self) -> None:
         """Confirms the remote kernel has started by obtaining connection information from the remote host."""
@@ -260,8 +175,18 @@ echo HEHEHHEHE
         time_interval = RemoteProcessProxy.get_time_diff(
             self.start_time, RemoteProcessProxy.get_current_time()
         )
+        try:
+            job_state = self.rsh(self.ip, f"squeue -h -j {self.job_id} -o \"%T\" ")[0].strip()
+        except Exception as e:
+            self.log_and_raise(
+                http_status_code=500,
+                reason=f"Could not get status for the job {self.job_id}. "
+                f"Error was: {str(e)}",
+            )
+        
+        self.log.debug(f"Slurm job {self.job_id} is in {job_state} state")
 
-        if time_interval > self.kernel_launch_timeout:
+        if job_state not in ["PENDING", "RUNNING"] and (time_interval > self.kernel_launch_timeout):
             reason = (
                 "Waited too long ({}s) to get connection file.  Check Enterprise Gateway log and kernel "
                 "log ({}:{}) for more information.".format(
@@ -271,19 +196,21 @@ echo HEHEHHEHE
             timeout_message = f"KernelID: '{self.kernel_id}' launch timeout due to: {reason}"
             await asyncio.get_event_loop().run_in_executor(None, self.kill)
             self.log_and_raise(http_status_code=500, reason=timeout_message)
+    
+    def kill(self) -> bool|None:
+        """Kill the proxy."""
+        try:
+            self.rsh(self.ip, f"scancel {self.job_id};enroot remove --force kernel_{self.slurm_kernel_username}")
+        except Exception as e:
+            self.log.warning(f"Error cancelling slurm job {self.job_id} and removing enroot image for user {self.slurm_kernel_username}. Error: {str(e)}")
+            return False
+            
 
     def cleanup(self) -> None:
         """Clean up the proxy."""
-        # DistributedProcessProxy can have a tendency to leave zombies, particularly when EG is
-        # abruptly terminated.  This extra call to shutdown_lister does the trick.
-        self.shutdown_listener()
-       # self._unregister_assigned_host()
+        self.kill()
+        
         if self.local_stdout:
             self.local_stdout.close()
             self.local_stdout = None
         super().cleanup()
-
-    def shutdown_listener(self) -> None:
-        """Ensure that kernel process is terminated."""
-        self.send_signal(signal.SIGTERM)
-        super().shutdown_listener()

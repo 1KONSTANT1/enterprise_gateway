@@ -700,7 +700,7 @@ class BaseProcessProxyABC(metaclass=abc.ABCMeta):
                     )
                 else:
                     self.log.debug("Connecting to remote host with ssh key.")
-                    ssh.connect(host_ip, port=ssh_port, username=self.remote_user, key_filename="/home/michman/.ssh/jupyterhub_slurm")
+                    ssh.connect(host_ip, port=ssh_port, username=self.remote_user, key_filename=self.kernel_manager.ssh_key_filename)
         except Exception as e:
             http_status_code = 500
             current_host = gethostbyname(gethostname())

@@ -8,7 +8,7 @@ from typing import Any
 
 from ..kernels.remotemanager import RemoteKernelManager
 from .processproxy import BaseProcessProxyABC, RemoteProcessProxy
-from traitlets import List, Unicode
+from traitlets import List, Unicode, Float
 from traitlets.config import Configurable
 import random
 
@@ -66,6 +66,18 @@ Example: '/mnt/nfs/users' or '/shared'
     enroot_image_path = Unicode('/mnt', config=True,
                              help=""" The file system path to Enroot container images stored on the Slurm worker nodes.
                              """)
+    slurm_pending_timeout = Float(300.0, config=True,
+                              help="""Maximum time (in seconds) to wait for a Slurm job to transition 
+from PENDING to RUNNING state before considering the launch failed.
+
+If the job remains in PENDING state longer than this timeout, the kernel 
+launch will be aborted. This helps prevent infinite waiting when the 
+Slurm queue is congested or when resource requirements cannot be met.
+
+If slurm_pending_timeout = 0.0 than there is no timeout.
+
+Default: 300.0 (5 minutes)
+                              """)
 
 class SlurmProcessProxy(RemoteProcessProxy):
     """
@@ -76,10 +88,8 @@ class SlurmProcessProxy(RemoteProcessProxy):
 {SBATCH_JOB_FLAGS}
 
 mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME} && sudo mount -t nfs {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
-echo lets goooooooooooooooo
 enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
-echo wtd
 
 {COMMAND}    
 """
@@ -102,6 +112,7 @@ echo wtd
             self.nfs_server_dest = slurm_config.get('nfs_server_dest', "/data")
             self.worker_mount_dir = slurm_config.get('worker_mount_dir', "/mnt/users")
             self.enroot_image_path = slurm_config.get('enroot_image_path', "/mnt")
+            self.slurm_pending_timeout = slurm_config.get('slurm_pending_timeout', 300.0)
             
 
     async def launch_process(
@@ -254,16 +265,35 @@ echo wtd
         
         self.log.debug(f"Slurm job {self.job_id} is in {job_state} state")
 
-        if job_state not in ["PENDING", "RUNNING"] and (time_interval > self.kernel_launch_timeout):
+        if job_state not in ["PENDING", "RUNNING", "COMPLETING"] and (time_interval > self.kernel_launch_timeout):
             reason = (
-                "Waited too long ({}s) to get connection file.  Check Enterprise Gateway log and kernel "
+                "Waited too long ({}s) to put job in queue.  Check Enterprise Gateway log and kernel "
                 "log ({}:{}) for more information.".format(
                     self.kernel_launch_timeout, self.assigned_host, self.kernel_log
                 )
             )
             timeout_message = f"KernelID: '{self.kernel_id}' launch timeout due to: {reason}"
-            await asyncio.get_event_loop().run_in_executor(None, self.kill)
+            await asyncio.get_event_loop().run_in_executor(None, self.remove_from_queue)
             self.log_and_raise(http_status_code=500, reason=timeout_message)
+        
+        elif self.slurm_pending_timeout != 0.0 and job_state in ["PENDING"] and (time_interval > self.slurm_pending_timeout):
+            reason = (
+                "Job has been pending for too long {}s. Try later".format(
+                    self.slurm_pending_timeout
+                )
+            )
+            timeout_message = f"KernelID: '{self.kernel_id}' launch timeout due to: {reason}"
+            await asyncio.get_event_loop().run_in_executor(None, self.remove_from_queue)
+            self.log_and_raise(http_status_code=500, reason=timeout_message)
+    
+    
+    def remove_from_queue(self) -> bool|None:
+        """Scancel the pending job"""
+        try:
+            self.rsh(self.ip, f"scancel {self.job_id}")
+        except Exception as e:
+            self.log.warning(f"Error cancelling slurm job {self.job_id}.Error: {str(e)}")
+            return False
     
     def kill(self) -> bool|None:
         """Kill the proxy."""

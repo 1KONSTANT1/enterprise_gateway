@@ -11,6 +11,7 @@ from .processproxy import BaseProcessProxyABC, RemoteProcessProxy
 from traitlets import List, Unicode, Float
 from traitlets.config import Configurable
 import random
+from datetime import datetime, timezone, timedelta
 
 poll_interval = float(os.getenv("EG_POLL_INTERVAL", "0.5"))
 kernel_log_dir = os.getenv(
@@ -87,7 +88,8 @@ class SlurmProcessProxy(RemoteProcessProxy):
     default_batch_job = """#!/bin/bash
 {SBATCH_JOB_FLAGS}
 
-mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME} && sudo mount -t nfs {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+sudo mount -t nfs {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
 enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
 
@@ -213,7 +215,7 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
                 cmd += f" {arg}"
                 
             #kernel runs in enroot container and is being mounted to nfs
-            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work {self.enroot_container_name} /bin/bash -c \"" + cmd +"\""
+            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work --env NVIDIA_VISIBLE_DEVICES=all --env NVIDIA_MIG_CONFIG_DEVICES=all --env NVIDIA_DRIVER_CAPABILITIES=compute,utility {self.enroot_container_name} /bin/bash -c \"" + cmd +"\""
 
             cmd += f" >> {self.kernel_log} 2>&1"  # return the process id    echo $!
         
@@ -247,6 +249,18 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
             if self.assigned_host:
                 ready_to_connect = await self.receive_connection_info()
+
+        utc_plus_3 = timezone(timedelta(hours=3))
+
+        current_time_utc_plus_3 = datetime.now(utc_plus_3)
+
+        date_str = current_time_utc_plus_3.strftime("%Y-%m-%d %H:%M:%S")
+        
+        log_line = f"{date_str}, {self.slurm_kernel_username}, {self.kernel_manager.kernel_spec.display_name}, {RemoteProcessProxy.get_time_diff(self.start_time, RemoteProcessProxy.get_current_time())}\n"
+
+        with open("/home/michman/.jupyter/jeg.log", "a") as f:
+            f.write(log_line)
+        
 
     async def handle_timeout(self) -> None:
         """Checks to see if the kernel launch timeout has been exceeded while awaiting connection info."""
@@ -298,7 +312,8 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
     def kill(self) -> bool|None:
         """Kill the proxy."""
         try:
-            self.rsh(self.ip, f"srun --nodelist=$(squeue -h -j {self.job_id} -o \"%N\") scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
+            #self.rsh(self.ip, f"srun --nodelist=$(squeue -h -j {self.job_id} -o \"%N\") scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
+            self.rsh(self.ip, f"scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
         except Exception as e:
             self.log.warning(f"Error cancelling slurm job {self.job_id} and removing enroot image for user {self.slurm_kernel_username}. Error: {str(e)}")
             return False

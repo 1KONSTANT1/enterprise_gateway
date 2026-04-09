@@ -5,6 +5,7 @@ import json
 import os
 from socket import gethostbyname
 from typing import Any
+import signal
 
 from ..kernels.remotemanager import RemoteKernelManager
 from .processproxy import BaseProcessProxyABC, RemoteProcessProxy
@@ -88,12 +89,28 @@ class SlurmProcessProxy(RemoteProcessProxy):
     default_batch_job = """#!/bin/bash
 {SBATCH_JOB_FLAGS}
 
-mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
-sudo mount -t nfs {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
-enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
+mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+sudo mount -t nfs -o nconnect=4,hard,async,noatime {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+export CONTAINER=$(python3 /home/michman/dockerf/consumer.py)
+#enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
+
+echo $CONTAINER {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME} {ENROOT_IMAGE_PATH} > /tmp/change_$SLURM_JOB_ID
+
+echo $CONTAINER
+whoami
+echo baba
+echo $CUDA_VISIBLE_DEVICES
 
 {COMMAND}    
+COMMAND_EXIT_CODE=$?
+
+echo LELE_$COMMAND_EXIT_CODE
+#enroot remove --force $CONTAINER
+#sudo umount {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+#enroot create --name $CONTAINER {ENROOT_IMAGE_PATH}
+#python3 /home/michman/dockerf/producer.py $CONTAINER {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME} {ENROOT_IMAGE_PATH}
+
 """
 
     def __init__(self, kernel_manager: RemoteKernelManager, proxy_config: dict):
@@ -136,8 +153,8 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
         self.assigned_host = self.slurm_master_hosts[0]
         self.ip = gethostbyname(self.assigned_host)  # convert to ip if host is provided
-        self.assigned_ip = self.ip
-
+        #self.assigned_ip = self.ip
+        #print(f"\n\n ASSIGNED     {self.assigned_ip}   \n\n")
         try:
             slurm_job = self._launch_remote_process(kernel_cmd, **kwargs)
             self.job_id= int(slurm_job)
@@ -214,8 +231,8 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
             for arg in argv_cmd:
                 cmd += f" {arg}"
                 
-            #kernel runs in enroot container and is being mounted to nfs
-            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work --env NVIDIA_VISIBLE_DEVICES=all --env NVIDIA_MIG_CONFIG_DEVICES=all --env NVIDIA_DRIVER_CAPABILITIES=compute,utility {self.enroot_container_name} /bin/bash -c \"" + cmd +"\""
+            #kernel runs in enroot container and is being mounted to nfs {self.enroot_container_name}
+            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work --env NVIDIA_VISIBLE_DEVICES=all --env NVIDIA_DRIVER_CAPABILITIES=compute,utility $CONTAINER /bin/bash -c \"" + cmd +"\""
 
             cmd += f" >> {self.kernel_log} 2>&1"  # return the process id    echo $!
         
@@ -256,7 +273,7 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
         date_str = current_time_utc_plus_3.strftime("%Y-%m-%d %H:%M:%S")
         
-        log_line = f"{date_str}, {self.slurm_kernel_username}, {self.kernel_manager.kernel_spec.display_name}, {RemoteProcessProxy.get_time_diff(self.start_time, RemoteProcessProxy.get_current_time())}\n"
+        log_line = f"{date_str}, {self.slurm_kernel_username}, {self.job_id}, {self.kernel_manager.kernel_spec.display_name}, {RemoteProcessProxy.get_time_diff(self.start_time, RemoteProcessProxy.get_current_time())}s\n"
 
         with open("/home/michman/.jupyter/jeg.log", "a") as f:
             f.write(log_line)
@@ -309,21 +326,30 @@ enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
             self.log.warning(f"Error cancelling slurm job {self.job_id}.Error: {str(e)}")
             return False
     
-    def kill(self) -> bool|None:
-        """Kill the proxy."""
-        try:
+    #def kill(self) -> bool|None:
+       # """Kill the proxy."""
+       # try:
             #self.rsh(self.ip, f"srun --nodelist=$(squeue -h -j {self.job_id} -o \"%N\") scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
-            self.rsh(self.ip, f"scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
-        except Exception as e:
-            self.log.warning(f"Error cancelling slurm job {self.job_id} and removing enroot image for user {self.slurm_kernel_username}. Error: {str(e)}")
-            return False
+           # self.rsh(self.ip, f"scancel {self.job_id};enroot remove --force {self.enroot_container_name};sudo umount {self.worker_mount_dir}/{self.slurm_kernel_username}")
+       # except Exception as e:
+            #self.log.warning(f"Error cancelling slurm job {self.job_id} and removing enroot image for user {self.slurm_kernel_username}. Error: {str(e)}")
+            #return False
             
 
     def cleanup(self) -> None:
         """Clean up the proxy."""
-        self.kill()
+        #self.kill()
+        #self.shutdown_listener()
+        self.remove_from_queue()
+
         
         if self.local_stdout:
             self.local_stdout.close()
             self.local_stdout = None
         super().cleanup()
+    
+
+    def shutdown_listener(self) -> None:
+        """Ensure that kernel process is terminated."""
+        self.send_signal(signal.SIGTERM)
+        super().shutdown_listener()

@@ -275,11 +275,13 @@ class ResponseManager(SingletonConfigurable):
         data = ""
         try:
             conn, addr = await loop.sock_accept(self._response_socket)
+            sender_ip = addr[0]
             while True:
                 buffer = await loop.sock_recv(conn, 1024)
                 if not buffer:  # send is complete, process payload
                     self.log.debug(f"Received payload '{data}'")
                     payload = self._decode_payload(data)
+                    payload['sender_ip'] = sender_ip
                     self.log.debug(f"Decrypted payload '{payload}'")
                     self._post_connection(payload)
                     break
@@ -1307,6 +1309,9 @@ class RemoteProcessProxy(BaseProcessProxyABC, metaclass=abc.ABCMeta):
 
         try:
             connect_info = await self.response_manager.get_connection_info(self.kernel_id)
+            sender_ip = connect_info.get('sender_ip')
+            self.assigned_ip = sender_ip
+            print(f"\n\n\n sender ippppppppppppp {sender_ip} \n\n\n\n")
             self._setup_connection_info(connect_info)
             ready_to_connect = True
         except Exception as e:

@@ -275,11 +275,13 @@ class ResponseManager(SingletonConfigurable):
         data = ""
         try:
             conn, addr = await loop.sock_accept(self._response_socket)
+            sender_ip = addr[0]
             while True:
                 buffer = await loop.sock_recv(conn, 1024)
                 if not buffer:  # send is complete, process payload
                     self.log.debug(f"Received payload '{data}'")
                     payload = self._decode_payload(data)
+                    payload['sender_ip'] = sender_ip
                     self.log.debug(f"Decrypted payload '{payload}'")
                     self._post_connection(payload)
                     break
@@ -700,7 +702,7 @@ class BaseProcessProxyABC(metaclass=abc.ABCMeta):
                     )
                 else:
                     self.log.debug("Connecting to remote host with ssh key.")
-                    ssh.connect(host_ip, port=ssh_port, username=self.remote_user)
+                    ssh.connect(host_ip, port=ssh_port, username=self.remote_user, key_filename=self.kernel_manager.ssh_key_filename)
         except Exception as e:
             http_status_code = 500
             current_host = gethostbyname(gethostname())
@@ -723,7 +725,7 @@ class BaseProcessProxyABC(metaclass=abc.ABCMeta):
             self.log_and_raise(http_status_code=http_status_code, reason=error_message)
         return ssh
 
-    def rsh(self, host: str, command: str) -> list[str]:
+    def rsh(self, host: str, command: str, inputs: str=None) -> list[str]:
         """
         Executes a command on a remote host using ssh.
 
@@ -742,6 +744,10 @@ class BaseProcessProxyABC(metaclass=abc.ABCMeta):
         ssh = self._get_ssh_client(host)
         try:
             stdin, stdout, stderr = ssh.exec_command(command, timeout=30)
+            if inputs:
+                stdin.write(inputs)
+                stdin.flush()
+                stdin.channel.shutdown_write() 
             lines = stdout.readlines()
             if len(lines) == 0:  # if nothing in stdout, return stderr
                 lines = stderr.readlines()
@@ -1303,6 +1309,9 @@ class RemoteProcessProxy(BaseProcessProxyABC, metaclass=abc.ABCMeta):
 
         try:
             connect_info = await self.response_manager.get_connection_info(self.kernel_id)
+            sender_ip = connect_info.get('sender_ip')
+            self.assigned_ip = sender_ip
+            print(f"\n\n\n sender ippppppppppppp {sender_ip} \n\n\n\n")
             self._setup_connection_info(connect_info)
             ready_to_connect = True
         except Exception as e:
@@ -1561,7 +1570,6 @@ class RemoteProcessProxy(BaseProcessProxyABC, metaclass=abc.ABCMeta):
                         signum, self.kernel_id, str(e)
                     )
                 )
-
         return super().send_signal(signum)
 
     def shutdown_listener(self):

@@ -1,0 +1,12 @@
+[Unit]
+Description=Jupyter Enterprise Gateway
+
+[Service]
+Type=simple
+User=michman
+ExecStart=/home/michman/eg_env/bin/jupyter-enterprisegateway --ip=0.0.0.0 --port_retries=0 --EnterpriseGatewayApp.log_level=DEBUG --KernelRestarter.restart_limit=0 --port=5555 --MappingKernelManager.cull_idle_timeout=180 --MappingKernelManager.cull_interval=60 --MultiKernelManager.use_pending_kernels=True --EnterpriseGatewayApp.max_kernels_per_user=1
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

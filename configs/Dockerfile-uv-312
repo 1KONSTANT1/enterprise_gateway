@@ -1,0 +1,54 @@
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    gnupg2 \
+    ca-certificates \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/3bf863cc.pub \
+       | gpg --dearmor -o /etc/apt/keyrings/cuda-archive-keyring.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /" \
+       > /etc/apt/sources.list.d/cuda.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libcudnn9-cuda-12 \
+        libcudnn9-dev-cuda-12 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /opt
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
+
+COPY requirements-uv.txt .
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --no-cache-dir  -r requirements-uv.txt
+
+
+#RUN --mount=type=cache,target=/root/.cache/uv \
+#    uv pip install --system --no-cache-dir \
+#        jupyter jupyterlab pycryptodome==3.19.0 pycryptodomex==3.19.0 \
+#        numpy \
+#        pandas \
+#        requests \
+#        tqdm
+#torchdata
+#torchsummary
+#torchtune
+#torchao
+#torchcodec
+
+#RUN --mount=type=cache,target=/root/.cache/uv \
+#     uv pip install --system --no-cache-dir torch torchvision torchaudio torchdata tensorflow[and-cuda] torchsummary torchtune torchao torchcodec --extra-index-url https://download.pytorch.org/whl/cu128
+
+
+COPY ./launch_ipykernel.py .
+
+
+WORKDIR /work
+

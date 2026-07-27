@@ -91,7 +91,7 @@ class SlurmProcessProxy(RemoteProcessProxy):
 
 
 mkdir {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
-sudo mount -t nfs -o nconnect=4,hard,async,noatime {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
+sudo mount -t nfs -o vers=4.2,nconnect=8,async,noatime,rsize=1048576,wsize=1048576,timeo=600,retrans=2 {NFS_SERVER}:{NFS_SERVER_DEST}/{SLURM_KERNEL_USERNAME} {WORKER_MOUNT_DIR}/{SLURM_KERNEL_USERNAME}
 export CONTAINER=$(python3 /home/michman/dockerf/consumer.py)
 #enroot create --name {CONTAINER_NAME} {ENROOT_IMAGE_PATH}
 
@@ -127,7 +127,7 @@ echo LELE_$COMMAND_EXIT_CODE
         #get envs from config
         if slurm_config:
             self.slurm_master_hosts = slurm_config.get('master_nodes', [])
-            self.nfs_server = slurm_config.get('nfs_server', "0.0.0.0")
+            self.nfs_server = slurm_config.get('nfs_server', "127.0.0.1")
             self.nfs_server_dest = slurm_config.get('nfs_server_dest', "/data")
             self.worker_mount_dir = slurm_config.get('worker_mount_dir', "/mnt/users")
             self.enroot_image_path = slurm_config.get('enroot_image_path', "/mnt")
@@ -140,7 +140,7 @@ echo LELE_$COMMAND_EXIT_CODE
         """
         Launches a kernel process on a SLURM cluster.
         """
-        
+        print(f"\n\n\n\n START SLURM LAUNCH \n\n\n")
         env_dict = kwargs.get("env")
 
         self.slurm_kernel_username = env_dict.get("KERNEL_USERNAME")
@@ -175,7 +175,33 @@ echo LELE_$COMMAND_EXIT_CODE
             )
         )
         await self.confirm_remote_startup()
+        #asyncio.create_task(self._safe_confirm_startup())
         return self
+    
+
+
+    async def _safe_confirm_startup(self):
+        """Безопасное подтверждение в фоне"""
+        try:
+            await asyncio.wait_for(self.confirm_remote_startup(), timeout=45.0)
+            self.log.info(f"Kernel {self.kernel_id} confirmed successfully")
+        except asyncio.TimeoutError:
+            self.log.warning(f"Confirmation timeout for kernel {self.kernel_id}")
+        except Exception as e:
+            self.log.error(f"Confirmation failed for kernel {self.kernel_id}: {e}")
+    
+
+
+
+    async def _background_confirm_startup(self) -> None:
+        """Фоновая задача подтверждения запуска удалённого ядра."""
+        try:
+            await self.confirm_remote_startup()
+            self.log.debug(f"Kernel {self.kernel_id} successfully confirmed remote startup.")
+        except asyncio.CancelledError:
+            self.log.warning(f"Confirmation task for kernel {self.kernel_id} was cancelled.")
+        except Exception as e:
+            self.log.error(f"Failed to confirm remote startup for kernel {self.kernel_id}: {e}")
 
     def _launch_remote_process(self, kernel_cmd: str, **kwargs: dict[str, Any] | None) -> str:
         """
@@ -197,6 +223,7 @@ echo LELE_$COMMAND_EXIT_CODE
         """
         Determines if process proxy is still alive.
         """
+        
 
         return self.send_signal(0)
     
@@ -232,7 +259,7 @@ echo LELE_$COMMAND_EXIT_CODE
                 cmd += f" {arg}"
                 
             #kernel runs in enroot container and is being mounted to nfs {self.enroot_container_name}
-            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work --env NVIDIA_VISIBLE_DEVICES=all --env NVIDIA_DRIVER_CAPABILITIES=compute,utility $CONTAINER /bin/bash -c \"" + cmd +"\""
+            cmd = f"enroot start --mount {self.worker_mount_dir}/{self.slurm_kernel_username}:/work --env NVIDIA_VISIBLE_DEVICES=all --env NVIDIA_DRIVER_CAPABILITIES=compute,utility,compat32 $CONTAINER /bin/bash -c \"" + cmd +"\""
 
             cmd += f" >> {self.kernel_log} 2>&1"  # return the process id    echo $!
         
@@ -351,5 +378,6 @@ echo LELE_$COMMAND_EXIT_CODE
 
     def shutdown_listener(self) -> None:
         """Ensure that kernel process is terminated."""
+        print(f"\n\n\n\n siiiiiiiiiiuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\n\n\n")
         self.send_signal(signal.SIGTERM)
         super().shutdown_listener()

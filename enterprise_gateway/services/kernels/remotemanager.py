@@ -211,6 +211,9 @@ class RemoteMappingKernelManager(AsyncMappingKernelManager):
             The uuid associated with the new kernel.  This string will equal the value
             of the input parameter `kernel_id` if one was provided.
         """
+
+
+        print(f"\n\n\n CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC \n\n\n")
         username = KernelSessionManager.get_kernel_username(**kwargs)
         self.log.debug(
             "RemoteMappingKernelManager.start_kernel: {kernel_name}, kernel_username: {username}".format(
@@ -501,7 +504,9 @@ class RemoteKernelManager(EnterpriseGatewayConfigMixin, AsyncIOLoopKernelManager
         """
         self._get_process_proxy()
         self._capture_user_overrides(**kwargs)
+        print(f"\n\n\n\n PERED START \n\n\n\n")
         await super().start_kernel(**kwargs)
+        print(f"\n\n\n\n HUYIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIITA \n\n\n\n")
 
     def _capture_user_overrides(self, **kwargs: dict[str, Any] | None) -> None:
         """
@@ -581,6 +586,8 @@ class RemoteKernelManager(EnterpriseGatewayConfigMixin, AsyncIOLoopKernelManager
         """
         Send a shutdown request via control channel and process proxy (if remote).
         """
+
+        print(f"\n\n\n\n SHHHHHHHHHHHHHHHUTDOWNNNNNNNN \n\n\n\n")
         super().request_shutdown(restart)
 
         # If we're using a remote proxy, we need to send the launcher indication that we're

@@ -1,0 +1,41 @@
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+WORKDIR /opt
+
+# Установка Python
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.10 \
+        python3.10-dev \
+        python3.10-venv \
+        python3-pip \
+        && \
+    rm -rf /var/lib/apt/lists/*
+
+# Создаем symlink для python
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python
+
+# Обновляем pip
+RUN python -m pip install --upgrade pip
+
+# Установка PyTorch с CUDA 12.1 поддержкой
+RUN pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+# Установка остальных пакетов
+RUN pip install --no-cache-dir \
+    jupyter==1.0.0 \
+    jupyterlab==4.0.0 \
+    numpy==1.26.0 \
+    pandas==2.0.3 \
+    matplotlib==3.7.2 \
+    scikit-learn==1.3.0 \
+    tensorflow[and-cuda]==2.17.0 \
+    pycryptodome==3.19.0 \
+    pycryptodomex==3.19.0
+
+COPY ./launch_ipykernel.py .
+
+WORKDIR /work
+
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH

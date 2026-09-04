@@ -89,6 +89,37 @@ class KubernetesProcessProxy(ContainerProcessProxy):
         # Determine pod name and namespace - creating the latter if necessary
         self.kernel_pod_name = self._determine_kernel_pod_name(**kwargs)
         self.kernel_namespace = self._determine_kernel_namespace(**kwargs)
+        
+        env_dict = kwargs.get("env")
+                
+        self.k8s_kernel_username = env_dict.get("KERNEL_USERNAME")
+        
+        
+        #self.k8s_flags = self.proxy_config.get("k8s_flags")
+        
+        #kwargs["env"]["KERNEL_POD_NAME"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_NAMESPACE"] = self.proxy_config.get("namespace")
+        #kwargs["env"]["KERNEL_SERVICE_ACCOUNT_NAME"] = self.proxy_config.get("service_account")
+        #kwargs["env"]["KERNEL_CPUS"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_MEMORY"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_GPUS"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_CPUS_LIMIT"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_MEMORY_LIMIT"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_GPUS_LIMIT"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_WORKING_DIR"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_VOLUME_MOUNTS"] = self.proxy_config.get("pod_name")
+        #kwargs["env"]["KERNEL_VOLUMES"] = self.proxy_config.get("pod_name")
+        kwargs["env"]["KERNEL_VOLUMES"] = f'''
+- name: user-nfs-volume
+  nfs:
+    server: 10.100.192.16
+    path: /data/{self.k8s_kernel_username}
+'''
+        kwargs["env"]["KERNEL_VOLUME_MOUNTS"] = '''
+- name: user-nfs-volume
+  mountPath: /work
+'''
+        kwargs["env"]["KERNEL_POD_NAME"] = f"KERNEL_{self.k8s_kernel_username}"
 
         await super().launch_process(kernel_cmd, **kwargs)
         return self

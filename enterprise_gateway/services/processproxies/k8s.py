@@ -119,7 +119,7 @@ class KubernetesProcessProxy(ContainerProcessProxy):
 - name: user-nfs-volume
   mountPath: /work
 '''
-        kwargs["env"]["KERNEL_POD_NAME"] = f"kernel_{self.k8s_kernel_username}"
+        kwargs["env"]["KERNEL_POD_NAME"] = f"kernel-{self.k8s_kernel_username}"
 
         await super().launch_process(kernel_cmd, **kwargs)
         return self

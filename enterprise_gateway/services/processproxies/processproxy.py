@@ -510,7 +510,13 @@ class BaseProcessProxyABC(metaclass=abc.ABCMeta):
         # see if KERNEL_LAUNCH_TIMEOUT was included from user.  If so, override default
         if env_dict.get("KERNEL_LAUNCH_TIMEOUT"):
             self.kernel_launch_timeout = float(env_dict.get("KERNEL_LAUNCH_TIMEOUT"))
+        perem = float(os.getenv("EG_KERNEL_LAUNCH_TIMEOUT", "30"))
 
+        self.log.warning(f"\n\n\n\n  ENCVVVVVVVVV{ perem }  \n\n\n\n")
+        print(f"\n\n\n\n  ENCVVVVVVVVV{ perem }  \n\n\n\n")
+        self.log.warning(f"\n\n\n\n\n KERNEL TIMEOUT IS {self.kernel_launch_timeout}   \n\n\n")
+        print(f"\n\n\n\n\n KERNEL TIMEOUT IS {self.kernel_launch_timeout}   \n\n\n")
+        self.kernel_launch_timeout = float(os.getenv("EG_KERNEL_LAUNCH_TIMEOUT", "30"))
         # add the applicable kernel_id and language to the env dict
         env_dict["KERNEL_ID"] = self.kernel_id
 

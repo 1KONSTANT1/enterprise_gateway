@@ -9,6 +9,7 @@ import logging
 import os
 import re
 from typing import Any
+import random
 
 import kubernetes
 import urllib3
@@ -119,7 +120,7 @@ class KubernetesProcessProxy(ContainerProcessProxy):
 - name: user-nfs-volume
   mountPath: /work
 '''
-        kwargs["env"]["KERNEL_POD_NAME"] = f"kernel-{self.k8s_kernel_username}"
+        kwargs["env"]["KERNEL_POD_NAME"] = f"kernel-{self.k8s_kernel_username}-{random.randint(100000, 999999)}"
 
         await super().launch_process(kernel_cmd, **kwargs)
         return self

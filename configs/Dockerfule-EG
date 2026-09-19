@@ -1,0 +1,22 @@
+FROM python:3.10-slim
+
+# Устанавливаем git (он не входит в slim-образ)
+RUN apt-get update && \
+    apt-get install -y git && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git clone -b slurm_proxy https://github.com/1KONSTANT1/enterprise_gateway.git /app
+
+# Устанавливаем зависимости и сам пакет в editable режиме
+WORKDIR /app
+RUN pip install --no-cache-dir -e .
+
+WORKDIR /opt
+# Mount from kuber config
+COPY ./launch_kubernetes.py .
+COPY ./kernel-pod.yaml.j2 .
+
+RUN groupadd -r jupyter-eg -g 1000 && \
+    useradd -r -g jupyter-eg -u 1000 -m -s /bin/bash jupyter-eg
+
+USER jupyter-eg

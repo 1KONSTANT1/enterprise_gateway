@@ -1,0 +1,105 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+  uid: beaf0cc6-1041-41d0-a203-95bebb319eb1
+  resourceVersion: '2709163'
+  generation: 5
+  creationTimestamp: '2026-09-06T16:52:35Z'
+  annotations:
+    deprecated.daemonset.template.generation: '5'
+    kubectl.kubernetes.io/last-applied-configuration: >
+      {"apiVersion":"apps/v1","kind":"DaemonSet","metadata":{"annotations":{},"name":"nvidia-device-plugin-daemonset","namespace":"kube-system"},"spec":{"selector":{"matchLabels":{"name":"nvidia-device-plugin-ds"}},"template":{"metadata":{"labels":{"name":"nvidia-device-plugin-ds"}},"spec":{"containers":[{"env":[{"name":"FAIL_ON_INIT_ERROR","value":"false"}],"image":"nvcr.io/nvidia/k8s-device-plugin:v0.17.1","imagePullPolicy":"IfNotPresent","name":"nvidia-device-plugin-ctri","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"volumeMounts":[{"mountPath":"/var/lib/kubelet/device-plugins","name":"device-plugin"}]}],"nodeSelector":{"gpu":"true"},"priorityClassName":"system-node-critical","tolerations":[{"effect":"NoSchedule","key":"nvidia.com/gpu","operator":"Exists"}],"volumes":[{"hostPath":{"path":"/var/lib/kubelet/device-plugins"},"name":"device-plugin"}]}},"updateStrategy":{"type":"RollingUpdate"}}}
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: ''
+        - name: dev
+          hostPath:
+            path: /dev
+            type: ''
+        - name: proc
+          hostPath:
+            path: /proc
+            type: ''
+        - name: sys
+          hostPath:
+            path: /sys
+            type: ''
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+            type: ''
+      containers:
+        - name: nvidia-device-plugin-ctri
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+          args:
+            - '--mig-strategy=mixed'
+          env:
+            - name: FAIL_ON_INIT_ERROR
+              value: 'false'
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: management.nvidia.com/gpu=all
+          resources: {}
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: dev
+              mountPath: /dev
+            - name: proc
+              readOnly: true
+              mountPath: /proc
+            - name: sys
+              readOnly: true
+              mountPath: /sys
+            - name: lib-modules
+              readOnly: true
+              mountPath: /lib/modules
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: true
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        gpu: 'true'
+      hostPID: true
+      hostIPC: true
+      securityContext: {}
+      schedulerName: default-scheduler
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-node-critical
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  revisionHistoryLimit: 10
+status:
+  currentNumberScheduled: 1
+  numberMisscheduled: 0
+  desiredNumberScheduled: 1
+  numberReady: 1
+  observedGeneration: 5
+  updatedNumberScheduled: 1
+  numberAvailable: 1
+

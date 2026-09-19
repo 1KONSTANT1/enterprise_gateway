@@ -1,0 +1,227 @@
+# jupyterhub_config.py
+import os
+import asyncio # 
+import asyncssh  # 
+from kubespawner import KubeSpawner 
+from ldapauthenticator import LDAPAuthenticator
+c = get_config()
+
+# ====================== JupyterHub ======================
+c.JupyterHub.spawner_class = 'kubespawner.KubeSpawner'
+c.JupyterHub.port = 443
+c.JupyterHub.hub_ip = '0.0.0.0'
+
+# IP пода JupyterHub (замените на реальный IP пода hub)
+# Можно взять через downward API или service
+c.JupyterHub.hub_connect_ip = os.environ.get("POD_IP") #c.JupyterHub.hub_connect_ip = jupyterhub.default.svc.cluster.local
+c.JupyterHub.hub_connect_port = 8081  # стандартный порт API hub (если другой — поменяйте)
+
+# ====================== KubeSpawner ======================
+c.KubeSpawner.image = '10.100.203.151:443/library/jup_client:latest'
+c.KubeSpawner.image_pull_policy = 'Always'  # или 'IfNotPresent'
+
+# Секрет для приватного registry (создайте заранее)
+# kubectl create secret docker-registry regcred \
+#   --docker-server=10.100.203.151:443 \
+#   --docker-username=... --docker-password=... -n <namespace>
+c.KubeSpawner.image_pull_secrets = ['regcred']
+
+# Порт, на котором слушает singleuser
+c.KubeSpawner.port = 8888
+
+# ====================== Команда запуска ======================
+# Полный cmd (рекомендуется в JupyterHub ≥ 2.0)
+def get_cmd(spawner):
+    username = spawner.user.name
+    container_port = spawner.port  # 8888
+
+    return [
+        'jupyterhub-singleuser',
+        f'--ip=0.0.0.0',
+        f'--allow-root',
+        f'--port={container_port}',
+        f'--gateway-url=http://10.100.203.237:5555',
+        f'--MappingKernelManager.buffer_offline_messages=False',
+        f'--FileContentsManager.checkpoints_kwargs=root_dir=/work/jupyter_checkpoints',
+        f'--FileContentsManager.always_delete_dir=True',
+        f'--no-browser',
+        f'--MultiKernelManager.use_pending_kernels=True',
+        f'--ServerApp.default_url=/lab',
+        f'--ServerApp.base_url=/user/{username}/',
+        f'--ServerApp.allow_origin=*',
+        f'--ServerApp.disable_check_xsrf=True',
+        f'--IdentityProvider.token=',
+        f'--ServerApp.password=',
+        f'--ServerApp.token=',
+        f'--LabApp.extension_manager=pypi',
+    ]
+
+#c.KubeSpawner.cmd = [
+   #     'jupyterhub-singleuser',
+      #  f'--ip=0.0.0.0',
+     #   f'--allow-root',
+     #   f'--port=8888',
+     #   f'--gateway-url=http://enterprise-gateway.default.svc.cluster.local:8888',
+     #   f'--MappingKernelManager.buffer_offline_messages=False',
+     #   f'--FileContentsManager.checkpoints_kwargs=root_dir=/work/jupyter_checkpoints',
+     #   f'--FileContentsManager.always_delete_dir=True',
+      #  f'--no-browser',
+       # f'--MultiKernelManager.use_pending_kernels=True',
+        #f'--ServerApp.default_url=/lab',
+      #  '--ServerApp.base_url=/user/{username}/',
+       # f'--ServerApp.allow_origin=*',
+        #f'--ServerApp.disable_check_xsrf=True',
+        #f'--IdentityProvider.token=',
+        #f'--ServerApp.password=',
+        #f'--ServerApp.token=',
+        #f'--LabApp.extension_manager=pypi',
+    #]
+
+c.KubeSpawner.extra_pod_config = { "activeDeadlineSeconds": 43200 }
+c.KubeSpawner.cmd = ['jupyterhub-singleuser']
+c.KubeSpawner.args = [
+    '--ip=0.0.0.0',
+    '--allow-root',
+    '--port=8888',
+    '--gateway-url=http://enterprise-gateway.default.svc.cluster.local:8888',
+    '--MappingKernelManager.buffer_offline_messages=False',
+    '--FileContentsManager.checkpoints_kwargs=root_dir=/work/jupyter_checkpoints',
+    '--FileContentsManager.always_delete_dir=True',
+    '--no-browser',
+    '--MultiKernelManager.use_pending_kernels=True',
+    '--ServerApp.default_url=/lab',
+    '--ServerApp.allow_origin=*',
+    '--ServerApp.disable_check_xsrf=True',
+    '--IdentityProvider.token=',
+    '--ServerApp.password=',
+    '--ServerApp.token=',
+    '--LabApp.extension_manager=pypi',
+]
+# ====================== Environment ======================
+def get_env(spawner):
+    env = spawner.get_env()  # стандартные переменные JupyterHub
+    env['KERNEL_USERNAME'] = FFFFFF
+    print(f"\n\n {spawner.user.name} \n\n")
+    # сюда можно добавить любые другие переменные
+    # env['MY_VAR'] = 'value'
+    return env
+
+#c.KubeSpawner.get_env = get_env
+# или через environment (проще, если не нужен callable):
+c.KubeSpawner.environment = {'KERNEL_USERNAME': '{username}'}
+
+# ====================== NFS Volume ======================
+# Монтируем NFS 10.100.192.16:/data/{username} → /work
+c.KubeSpawner.volumes = [
+    {
+        'name': 'user-work',
+        'nfs': {
+            'server': '10.100.192.16',
+            'path': '/data/{username}',   # {username} раскрывается KubeSpawner
+        }
+    }
+]
+
+c.KubeSpawner.volume_mounts = [
+    {
+        'name': 'user-work',
+        'mountPath': '/work',
+    }
+]
+
+# ====================== Дополнительно (рекомендуется) ======================
+c.KubeSpawner.start_timeout = 300
+c.KubeSpawner.http_timeout = 300
+c.KubeSpawner.delete_stopped_pods = True
+
+# Если нужно запускать от root
+#c.KubeSpawner.uid = 0
+#c.KubeSpawner.gid = 0
+# или
+# c.KubeSpawner.container_security_context = {
+#     'runAsUser': 0,
+#     'runAsGroup': 0,
+#     'allowPrivilegeEscalation': True,
+# }
+
+# Рабочая директория
+c.KubeSpawner.working_dir = '/work'
+
+# namespace (если не default)
+# c.KubeSpawner.namespace = 'jupyter'
+class CustomLDAPAuthenticator(LDAPAuthenticator):
+    def normalize_username(self, username):
+        # Вызываем родительский метод для базовой нормализации (например, приведение к нижнему регистру)
+        username = super().normalize_username(username)
+        # Заменяем точку на нужный символ (например, подчеркивание)
+        return username.replace('.', '-')
+############LDAP
+c.JupyterHub.authenticator_class = CustomLDAPAuthenticator
+c.LDAPAuthenticator.server_address = "10.10.12.7"
+c.LDAPAuthenticator.server_port = 389
+c.LDAPAuthenticator.attributes = ['uid', 'cn', 'sn', 'mail', 'userPassword']
+c.LDAPAuthenticator.tls_strategy = "insecure"
+c.LDAPAuthenticator.use_ssl = False
+
+c.LDAPAuthenticator.user_attribute = 'sAMAccountName'
+c.LDAPAuthenticator.lookup_dn_user_dn_attribute = 'sAMAccountName'
+
+
+
+c.LDAPAuthenticator.lookup_dn = True
+c.LDAPAuthenticator.lookup_dn_search_user = 'jupyter'
+c.LDAPAuthenticator.lookup_dn_search_password = '$bBlog9LKd'
+c.LDAPAuthenticator.user_search_base = 'dc=intra,dc=ispras,dc=ru'
+
+
+
+############
+async def nfs_pre_spawn_hook(spawner):
+    try:
+        async with asyncssh.connect(
+            "10.100.192.16", #"10.100.203.132",
+            port=22,
+            username="ubuntu",  #michman
+            client_keys=["/etc/ssh-keys/ssh-privatekey"],
+            known_hosts=None,
+            connect_timeout=30,
+            login_timeout=30
+        ) as conn:
+            username = spawner.user.name
+            data_dir = f"/data/{username}"
+            log = spawner.log
+            #sudo chown 1000:1000 "{data_dir}" && \\
+            # Выполняем все операции одной командой через && для атомарности   rw,sync,no_subtree_check,no_root_squash
+            setup_script = f'''
+                sudo mkdir "{data_dir}" && \\
+                sudo chown 65534:65534 "{data_dir}" && \\
+                sudo chmod 777 "{data_dir}" && \\
+                sudo bash -c 'echo \"{data_dir} *(rw,sync,no_subtree_check,all_squash,anonuid=65534,anongid=65534,sec=sys)\" >> /etc/exports' && \\
+                sudo exportfs -ra
+            '''
+            
+            result = await conn.run(setup_script)
+            
+            if result.exit_status != 0:
+                error_msg = result.stderr or result.stdout
+                log.info(f"Failed to set up directory: {error_msg}")
+            
+            log.info(f"Successfully set up {data_dir} for user {username}")
+                    
+    except Exception as e:
+        log.error(f"Error in pre-spawn hook: {e}")
+        raise
+
+c.Spawner.pre_spawn_hook = nfs_pre_spawn_hook
+
+c.Authenticator.admin_users = {"michman", "jupyter", "1konstant1"}
+
+c.JupyterHub.load_roles = [
+    {
+        "name": "admin",
+        "users": ["bolotink"],  # email или username из OAuth
+    }
+]
+
+
+c.Authenticator.allow_all = True

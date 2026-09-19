@@ -164,6 +164,10 @@ class EnterpriseGatewayConfigMixin(Configurable):
     # Server IP / PORT binding
     port_env = "EG_PORT"
     port_default_value = 8888
+    
+    ssh_key_filename = Unicode("~/.ssh/id_rsa", config=True,
+                       help="""ssh key for accessing remote node
+                       """)
     port = Integer(
         port_default_value, config=True, help="Port on which to listen (EG_PORT env var)"
     )

@@ -1,0 +1,114 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: enterprise-gateway
+  namespace: default
+  uid: d93feea0-5b82-4fe8-abe9-60ae96287c88
+  resourceVersion: '4319435'
+  generation: 11
+  creationTimestamp: '2026-09-04T16:02:17Z'
+  labels:
+    app: enterprise-gateway
+    component: enterprise-gateway
+  annotations:
+    deployment.kubernetes.io/revision: '11'
+    kubectl.kubernetes.io/last-applied-configuration: >
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"enterprise-gateway","component":"enterprise-gateway"},"name":"enterprise-gateway","namespace":"default"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"enterprise-gateway","component":"enterprise-gateway"}},"strategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":0},"type":"RollingUpdate"},"template":{"metadata":{"labels":{"app":"enterprise-gateway","component":"enterprise-gateway"}},"spec":{"containers":[{"args":["--ip=0.0.0.0","--port_retries=0","--EnterpriseGatewayApp.log_level=DEBUG","--KernelRestarter.restart_limit=0","--port=8888","--MappingKernelManager.cull_idle_timeout=180","--MappingKernelManager.cull_interval=60","--MultiKernelManager.use_pending_kernels=True","--EnterpriseGatewayApp.max_kernels_per_user=1","--EnterpriseGatewayApp.availability_mode=standalone"],"command":["jupyter","enterprisegateway"],"image":"10.100.203.151:443/library/eg-kuber:latest","imagePullPolicy":"IfNotPresent","name":"enterprise-gateway","ports":[{"containerPort":8888,"name":"http","protocol":"TCP"},{"containerPort":8877,"name":"http-response","protocol":"TCP"}],"volumeMounts":[{"mountPath":"/usr/local/share/jupyter/kernels","name":"kernelspecs-nfs","readOnly":true}]}],"imagePullSecrets":[{"name":"regcred"}],"serviceAccountName":"enterprise-gateway-sa","terminationGracePeriodSeconds":60,"volumes":[{"name":"kernelspecs-nfs","nfs":{"path":"/data/kernels","server":"10.100.192.16"}}]}}}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: enterprise-gateway
+      component: enterprise-gateway
+  template:
+    metadata:
+      labels:
+        app: enterprise-gateway
+        component: enterprise-gateway
+    spec:
+      volumes:
+        - name: kernelspecs-nfs
+          nfs:
+            server: 10.100.192.16
+            path: /data/kernels
+        - name: config-volume
+          configMap:
+            name: jupyter-enterprise-gateway
+            defaultMode: 420
+      containers:
+        - name: enterprise-gateway
+          image: 10.100.203.151:443/library/eg-kuber:latest
+          command:
+            - jupyter
+            - enterprisegateway
+          args:
+            - '--ip=0.0.0.0'
+            - '--port_retries=0'
+            - '--EnterpriseGatewayApp.log_level=DEBUG'
+            - '--KernelRestarter.restart_limit=0'
+            - '--port=8888'
+            - '--MappingKernelManager.cull_idle_timeout=180'
+            - '--MappingKernelManager.cull_interval=60'
+            - '--MultiKernelManager.use_pending_kernels=True'
+            - '--EnterpriseGatewayApp.max_kernels_per_user=10'
+            - '--EnterpriseGatewayApp.availability_mode=standalone'
+          ports:
+            - name: http
+              containerPort: 8888
+              protocol: TCP
+            - name: http-response
+              containerPort: 8877
+              protocol: TCP
+          env:
+            - name: EG_DEFAULT_KERNEL_USERNAME
+              value: jovyan
+            - name: EG_KERNEL_LAUNCH_TIMEOUT
+              value: '600'
+          resources: {}
+          volumeMounts:
+            - name: kernelspecs-nfs
+              readOnly: true
+              mountPath: /usr/local/share/jupyter/kernels
+            - name: config-volume
+              readOnly: true
+              mountPath: /opt
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      dnsPolicy: ClusterFirst
+      serviceAccountName: enterprise-gateway-sa
+      serviceAccount: enterprise-gateway-sa
+      securityContext: {}
+      imagePullSecrets:
+        - name: regcred
+      schedulerName: default-scheduler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+status:
+  observedGeneration: 11
+  replicas: 1
+  updatedReplicas: 1
+  readyReplicas: 1
+  availableReplicas: 1
+  terminatingReplicas: 0
+  conditions:
+    - type: Progressing
+      status: 'True'
+      lastUpdateTime: '2026-09-09T14:47:56Z'
+      lastTransitionTime: '2026-09-04T16:02:17Z'
+      reason: NewReplicaSetAvailable
+      message: ReplicaSet "enterprise-gateway-7d4ff58b75" has successfully progressed.
+    - type: Available
+      status: 'True'
+      lastUpdateTime: '2026-09-18T07:51:19Z'
+      lastTransitionTime: '2026-09-18T07:51:19Z'
+      reason: MinimumReplicasAvailable
+      message: Deployment has minimum availability.
+

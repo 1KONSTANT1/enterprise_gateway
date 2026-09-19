@@ -1,0 +1,31 @@
+{
+  "display_name": "Python 3 CPU",
+  "language": "python",
+  "metadata": {
+    "process_proxy": {
+      "class_name": "enterprise_gateway.services.processproxies.slurm.SlurmProcessProxy",
+      "config": {
+        "sbatch_flags": {
+          "time": "02:00:00",
+          "cpus-per-task": "1",
+          "mem": "8G",
+          "partition": "cpu"
+        }
+      }
+    },
+    "debugger": true
+  },
+  "argv": [
+    "python3 /opt/launch_ipykernel.py",
+    "--RemoteProcessProxy.kernel-id",
+    "{kernel_id}",
+    "--RemoteProcessProxy.response-address",
+    "{response_address}",
+    "--RemoteProcessProxy.public-key",
+    "{public_key}",
+    "--RemoteProcessProxy.port-range",
+    "{port_range}",
+    "--RemoteProcessProxy.spark-context-initialization-mode",
+    "none"
+  ]
+}

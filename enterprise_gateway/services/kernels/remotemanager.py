@@ -197,11 +197,7 @@ class RemoteMappingKernelManager(AsyncMappingKernelManager):
 
     def _refresh_kernel(self, kernel_id: str) -> bool:
         if self.parent.availability_mode == EnterpriseGatewayConfigMixin.AVAILABILITY_REPLICATION:
-            try:
-                self.parent.kernel_session_manager.load_session(kernel_id)
-            except Exception as e:
-                self.log.error(f"Failed to load session, kernel_id:{kernel_id}", e)
-                return False
+            self.parent.kernel_session_manager.load_session(kernel_id)
             return self.parent.kernel_session_manager.start_session(kernel_id)
         # else we should throw 404 when not using an availability mode of 'replication'
         return False
@@ -215,6 +211,9 @@ class RemoteMappingKernelManager(AsyncMappingKernelManager):
             The uuid associated with the new kernel.  This string will equal the value
             of the input parameter `kernel_id` if one was provided.
         """
+
+
+        print(f"\n\n\n CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC \n\n\n")
         username = KernelSessionManager.get_kernel_username(**kwargs)
         self.log.debug(
             "RemoteMappingKernelManager.start_kernel: {kernel_name}, kernel_username: {username}".format(
@@ -505,7 +504,9 @@ class RemoteKernelManager(EnterpriseGatewayConfigMixin, AsyncIOLoopKernelManager
         """
         self._get_process_proxy()
         self._capture_user_overrides(**kwargs)
+        print(f"\n\n\n\n PERED START \n\n\n\n")
         await super().start_kernel(**kwargs)
+        print(f"\n\n\n\n HUYIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIITA \n\n\n\n")
 
     def _capture_user_overrides(self, **kwargs: dict[str, Any] | None) -> None:
         """
@@ -585,6 +586,8 @@ class RemoteKernelManager(EnterpriseGatewayConfigMixin, AsyncIOLoopKernelManager
         """
         Send a shutdown request via control channel and process proxy (if remote).
         """
+
+        print(f"\n\n\n\n SHHHHHHHHHHHHHHHUTDOWNNNNNNNN \n\n\n\n")
         super().request_shutdown(restart)
 
         # If we're using a remote proxy, we need to send the launcher indication that we're
@@ -632,8 +635,9 @@ class RemoteKernelManager(EnterpriseGatewayConfigMixin, AsyncIOLoopKernelManager
 
         if now:  # if auto-restarting (when now is True), indicate we're restarting.
             self.restarting = True
-
+        #kwargs.pop('newports', None)  # Удаляем если существует
         await super().restart_kernel(now, **kwargs)
+        
         if isinstance(self.process_proxy, RemoteProcessProxy):  # for remote kernels...
             # Re-establish activity watching...
             if self._activity_stream:

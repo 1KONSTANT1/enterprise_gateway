@@ -120,6 +120,21 @@ class KubernetesProcessProxy(ContainerProcessProxy):
 - name: user-nfs-volume
   mountPath: /work
 '''
+        dataset_ip   = env_dict.get("KERNEL_DATASETIP")
+        dataset_path = env_dict.get("KERNEL_DATASETPATH")
+        if dataset_ip:
+            kwargs["env"]["KERNEL_VOLUMES"] += f'''
+- name: datasets
+  nfs:
+    server: {dataset_ip}
+    path: {dataset_path}
+'''
+            kwargs["env"]["KERNEL_VOLUME_MOUNTS"] += '''
+- name: datasets
+  mountPath: /work/datasets
+  readOnly: true
+'''
+
         kwargs["env"]["KERNEL_POD_NAME"] = f"kernel-{self.k8s_kernel_username}-{random.randint(100000, 999999)}"
 
         await super().launch_process(kernel_cmd, **kwargs)
